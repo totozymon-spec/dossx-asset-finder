@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="tl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#080d1b">
+<title>DOSSX Asset Finder</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{
+ margin:0;min-height:100vh;padding:22px;
+ display:grid;place-items:center;
+ background:radial-gradient(circle at 50% 0%,#17294b 0,#080d1b 55%);
+ color:#f7f8fc;font-family:Arial,Helvetica,sans-serif
+}
+.card{
+ width:min(100%,460px);padding:26px;
+ background:#111a30;border:1px solid #2b4169;border-radius:20px;
+ box-shadow:0 18px 55px #0008
+}
+.brand{font-size:30px;font-weight:900;letter-spacing:2px;color:#ffdb35}
+h1{font-size:19px;margin:10px 0 7px}
+.subtitle{font-size:13px;line-height:1.5;color:#aab7d0;margin:0 0 24px}
+label{display:block;font-size:13px;font-weight:700;margin-bottom:8px}
+input{
+ width:100%;min-height:49px;padding:14px;
+ color:#fff;background:#080f20;border:1px solid #34486c;
+ border-radius:10px;outline:none;font-size:14px
+}
+input:focus{border-color:#ffdb35;box-shadow:0 0 0 3px #ffdb3520}
+button{
+ width:100%;min-height:47px;margin-top:13px;padding:12px;
+ border:0;border-radius:10px;background:#ffdb35;color:#101727;
+ font-size:14px;font-weight:800;cursor:pointer
+}
+button:disabled{opacity:.6;cursor:wait}
+button.secondary{background:#26395e;color:white}
+.status{min-height:20px;margin:13px 1px 0;font-size:13px;line-height:1.45;color:#aab7d0}
+.status.error{color:#ff8989}.status.success{color:#8be0a7}
+.result{
+ display:none;margin-top:18px;padding:17px;
+ background:#080f20;border:1px solid #34486c;border-radius:12px
+}
+.result.show{display:block}
+.caption{font-size:11px;color:#aab7d0;text-transform:uppercase;letter-spacing:1px}
+.game-name{font-size:17px;font-weight:700;margin:8px 0 15px;overflow-wrap:anywhere}
+.id-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.id-value{font-size:19px;font-weight:800;color:#ffdb35;overflow-wrap:anywhere}
+.id-row button{width:auto;min-width:92px;margin:0}
+.meta{font-size:12px;color:#aab7d0;line-height:1.6;margin-top:12px}
+.note{font-size:11px;line-height:1.5;color:#8493b1;margin-top:19px}
+footer{text-align:center;color:#71809c;font-size:11px;margin-top:23px}
+</style>
+</head>
+<body>
+<main class="card">
+ <div class="brand">DOSSX</div>
+ <h1>ROBLOX ASSET FINDER</h1>
+ <p class="subtitle">I-paste ang Roblox game link para hanapin ang Place ID at pampublikong impormasyon ng game.</p>
+
+ <form id="lookupForm">
+  <label for="gameUrl">Roblox game link</label>
+  <input id="gameUrl" type="url" inputmode="url" autocomplete="url"
+   placeholder="https://www.roblox.com/games/123456789" required>
+  <button id="findButton" type="submit">HANAPIN ANG ID</button>
+ </form>
+
+ <div id="status" class="status" role="status" aria-live="polite"></div>
+
+ <section id="result" class="result" aria-live="polite">
+  <div class="caption">Pangalan ng laro</div>
+  <div id="gameName" class="game-name">—</div>
+  <div class="caption">Place ID</div>
+  <div class="id-row">
+   <div id="placeId" class="id-value">—</div>
+   <button id="copyButton" class="secondary" type="button">KOPYAHIN</button>
+  </div>
+  <div id="details" class="meta"></div>
+ </section>
+
+ <p class="note">Paalala: Pampublikong game information at ID lang ang ipinapakita. Hindi nito ina-unlock o kinokopya ang private o copylocked na mga laro.</p>
+ <footer>© 2026 DOSSX</footer>
+</main>
+
+<script>
+const form = document.getElementById("lookupForm");
+const input = document.getElementById("gameUrl");
+const findButton = document.getElementById("findButton");
+const statusBox = document.getElementById("status");
+const resultBox = document.getElementById("result");
+const gameName = document.getElementById("gameName");
+const placeIdText = document.getElementById("placeId");
+const details = document.getElementById("details");
+const copyButton = document.getElementById("copyButton");
+let currentPlaceId = "";
+
+function setStatus(message, type="") {
+  statusBox.textContent = message;
+  statusBox.className = "status" + (type ? " " + type : "");
+}
+
+function getPlaceId(raw) {
+  let parsed;
+  try { parsed = new URL(raw.trim()); }
+  catch { throw new Error("Hindi mukhang valid na URL ang inilagay mo."); }
+
+  const host = parsed.hostname.toLowerCase();
+  if (!(host === "roblox.com" || host.endsWith(".roblox.com") ||
+        host === "www.roblox.com" || host === "www.roblox.com.")) {
+    throw new Error("Roblox game link dapat ang ilagay mo.");
+  }
+
+  const match = parsed.pathname.match(/\/games\/(\d+)(?:\/|$)/i);
+  if (!match) throw new Error("Hindi makita ang Game ID. Gumamit ng link na may /games/ID.");
+  return match[1];
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { method:"GET" });
+  if (!response.ok) {
+    if (response.status === 404) throw new Error("Hindi makita ang game. Tingnan kung tama ang link at public pa ito.");
+    if (response.status === 429) throw new Error("Maraming request ngayon. Maghintay muna at subukan ulit.");
+    throw new Error("Hindi makuha ang Roblox information (HTTP " + response.status + ").");
+  }
+  return response.json();
+}
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  resultBox.classList.remove("show");
+  currentPlaceId = "";
+  setStatus("");
+
+  let placeId;
+  try { placeId = getPlaceId(input.value); }
+  catch (error) { setStatus(error.message, "error"); return; }
+
+  findButton.disabled = true;
+  findButton.textContent = "NAGHAHANAP...";
+  setStatus("Kinukuha ang pampublikong impormasyon ng Roblox game...");
+
+  try {
+    // Convert Place ID to Universe ID first; the games endpoint requires Universe ID.
+    const universeInfo = await fetchJson(
+      "https://apis.roblox.com/universes/v1/places/" + encodeURIComponent(placeId) + "/universe"
+    );
+    if (!universeInfo || !universeInfo.universeId) {
+      throw new Error("Walang pampublikong game information para sa link na ito.");
+    }
+
+    const gameInfo = await fetchJson(
+      "https://games.roblox.com/v1/games?universeIds=" + encodeURIComponent(universeInfo.universeId)
+    );
+    const game = gameInfo && gameInfo.data && gameInfo.data[0];
+    if (!game) throw new Error("Hindi available ang detalye ng game na ito.");
+
+    currentPlaceId = placeId;
+    placeIdText.textContent = placeId;
+    gameName.textContent = game.name || "Hindi nakalista ang pangalan";
+    const creator = game.creator && game.creator.name ? game.creator.name : "Hindi available";
+    const playing = Number.isFinite(game.playing) ? game.playing.toLocaleString() : "Hindi available";
+    details.textContent = "Creator: " + creator + " · Kasalukuyang players: " + playing;
+    resultBox.classList.add("show");
+    setStatus("Tapos na! Nakuha ang pampublikong game information.", "success");
+  } catch (error) {
+    // The ID itself can still be extracted even if Roblox blocks browser API access.
+    currentPlaceId = placeId;
+    placeIdText.textContent = placeId;
+    gameName.textContent = "Hindi nakuha ang game details";
+    details.textContent = "Nakuha ang Place ID mula sa link. " + error.message;
+    resultBox.classList.add("show");
+    setStatus(error.message + " Kung browser/CORS restriction ito, subukan sa ibang browser o i-host ang page.", "error");
+  } finally {
+    findButton.disabled = false;
+    findButton.textContent = "HANAPIN ANG ID";
+  }
+});
+
+copyButton.addEventListener("click", async () => {
+  if (!currentPlaceId) return;
+  try {
+    await navigator.clipboard.writeText(currentPlaceId);
+    setStatus("Nakopya na ang Place ID: " + currentPlaceId, "success");
+  } catch {
+    const temporary = document.createElement("textarea");
+    temporary.value = currentPlaceId;
+    document.body.appendChild(temporary);
+    temporary.select();
+    const copied = document.execCommand("copy");
+    temporary.remove();
+    setStatus(copied ? "Nakopya na ang Place ID: " + currentPlaceId : "Hindi makopya. Pindutin nang matagal ang ID para kopyahin.", copied ? "success" : "error");
+  }
+});
+</script>
+</body>
+</html>
